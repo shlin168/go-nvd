@@ -1,0 +1,69 @@
+version: '3.4'
+
+services:
+  nvd-server:
+    image: nvd-tools:latest
+    container_name: nvd-server
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - 8080:8080
+      - 6060:6060
+    environment:
+      NVD_DB_TYPE: mongo
+      NVD_DB_USER: admin
+      NVD_DB_PWD: admin
+      NVD_DB_ENDPOINT: mongo:27017
+    healthcheck:
+      test: curl --fail http://localhost:8080/nvd/readiness
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - nvd
+
+  mongo:
+    image: mongo
+    container_name: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    volumes:
+      - ./mongo/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    ports:
+      - 27017:27017
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - nvd
+
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express
+    restart: always
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin@mongo:27017/
+    volumes:
+      - nvd-mongo-data:/data/db
+    networks:
+      - nvd
+
+networks:
+  nvd:
+    name: go-nvd
+
+volumes:
+  nvd-mongo-data:
+    labels:
+      - nvd

@@ -1,0 +1,73 @@
+{
+    "resultsPerPage": 1,
+    "startIndex": 0,
+    "totalResults": 3,
+    "format": "NVD_CPE",
+    "version": "2.0",
+    "timestamp": "2023-01-21T12:42:17.473",
+    "products": [
+        {
+            "cpe": {
+                "deprecated": false,
+                "cpeName": "cpe:2.3:a:netsarang:xshell:7:-:*:*:*:*:*:*",
+                "cpeNameId": "C938223D-03BF-4B65-9260-0F3ECA1F3EFF",
+                "lastModified": "2022-12-01T20:00:30.000",
+                "created": "2021-08-23T01:03:31.200",
+                "titles": [
+                    {
+                        "title": "NetSarang Xshell 7",
+                        "lang": "en"
+                    }
+                ],
+                "refs": [
+                    {
+                        "ref": "https:\/\/www.netsarang.com\/en\/xshell-update-history\/",
+                        "type": "Change Log"
+                    }
+                ]
+            }
+        },
+        {
+            "cpe": {
+                "deprecated": false,
+                "cpeName": "cpe:2.3:a:microsoft:office:2021:*:*:*:ltsc:*:x64:*",
+                "cpeNameId": "153061F4-6EF5-4E73-AC64-CC47E1CEF755",
+                "lastModified": "2022-12-01T19:00:00.000",
+                "created": "2021-11-12T21:31:25.087",
+                "titles": [
+                    {
+                        "title": "Microsoft Office 2021 Long Term Servicing Channel (LTSC) Edition on x64",
+                        "lang": "en"
+                    }
+                ],
+                "refs": [
+                    {
+                        "ref": "https:\/\/msrc.microsoft.com\/update-guide\/en-US\/vulnerability\/CVE-2022-29107",
+                        "type": "Advisory"
+                    }
+                ]
+            }
+        },
+        {
+            "cpe": {
+                "deprecated": false,
+                "cpeName": "cpe:2.3:a:microsoft:office:2021:*:*:*:ltsc:*:x86:*",
+                "cpeNameId": "50C79BCE-B6E4-4E9B-B9FD-E22ED9A1E608",
+                "lastModified": "2022-12-01T19:30:00.000",
+                "created": "2021-11-12T21:31:25.087",
+                "titles": [
+                    {
+                        "title": "Microsoft Office 2021 Long Term Servicing Channel (LTSC) Edition on x86",
+                        "lang": "en"
+                    }
+                ],
+                "refs": [
+                    {
+                        "ref": "https:\/\/msrc.microsoft.com\/update-guide\/en-US\/vulnerability\/CVE-2022-29107",
+                        "type": "Advisory"
+                    }
+                ]
+            }
+        }
+    ]
+}

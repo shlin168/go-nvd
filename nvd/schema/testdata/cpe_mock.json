@@ -1,0 +1,31 @@
+{
+    "resultsPerPage": 1,
+    "startIndex": 0,
+    "totalResults": 1,
+    "format": "NVD_CPE",
+    "version": "2.0",
+    "timestamp": "2023-01-21T12:42:17.473",
+    "products": [
+        {
+            "cpe": {
+                "deprecated": false,
+                "cpeName": "cpe:2.3:a:netsarang:xshell:7:-:*:*:*:*:*:*",
+                "cpeNameId": "C938223D-03BF-4B65-9260-0F3ECA1F3EFF",
+                "lastModified": "2022-12-01T20:06:30.330",
+                "created": "2021-08-23T01:03:31.200",
+                "titles": [
+                    {
+                        "title": "NetSarang Xshell 7",
+                        "lang": "en"
+                    }
+                ],
+                "refs": [
+                    {
+                        "ref": "https:\/\/www.netsarang.com\/en\/xshell-update-history\/",
+                        "type": "Change Log"
+                    }
+                ]
+            }
+        }
+    ]
+}
