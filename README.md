@@ -1,5 +1,7 @@
 # go-nvd
 
+[![Actions Status](https://github.com/shlin168/go-nvd/actions/workflows/go.yml/badge.svg)](https://github.com/shlin168/go-nvd/actions/workflows/go.yml)
+
 NVD officially provides APIs for [CPE](https://nvd.nist.gov/developers/products) and [CVE](https://nvd.nist.gov/developers/vulnerabilities), while both are set with [rate limit](https://nvd.nist.gov/general/news/API-Key-Announcement).
 
 To support high-volume query, `go-nvd` supports command to dump data from NVD to self-owned database and run API server on top of that to provide same API spec and part of parameters as NVD.
