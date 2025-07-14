@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -133,6 +134,64 @@ func TestMongoNvdCVE(t *testing.T) {
 		assert.ErrorContains(t, err, "command failed")
 	})
 
+	mt.Run("mongoPaginatedQuery", func(mt *mtest.T) {
+		cli, err := NewMongo("", "", "", MongoTestClient(mt.Client))
+		require.NoError(t, err)
+
+		// Mock data for testing
+		var cves []schema.Cve
+		largeDescription := make([]byte, 1024*1024) // 1MB description to increase document size
+		for i := 0; i < 20; i++ {                   // 20 documents with 1MB description each
+			id := primitive.NewObjectID() // Generate a new ObjectID for each document
+			cves = append(cves, schema.Cve{
+				Id:    &id,
+				CVEID: fmt.Sprintf("CVE-2022-%04d", 999-i), // Reverse order to test sorting
+				Descriptions: []schema.Description{
+					{
+						Lang:  "en",
+						Value: string(largeDescription),
+					},
+				},
+			})
+		}
+
+		// The first query's mock response (count query)
+		countRsp, err := toBsonD(struct {
+			Count int64 `bson:"count"`
+		}{Count: int64(len(cves))})
+		require.NoError(t, err)
+
+		// The second query's mock response (data query)
+		var dataRsps []bson.D
+		for _, cve := range cves[:10] { // Only return the first 10 items for pagination
+			dataRsp, err := toBsonD(cve)
+			require.NoError(t, err)
+			dataRsps = append(dataRsps, *dataRsp)
+		}
+
+		mt.AddMockResponses(
+			// First query: count
+			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *countRsp),
+			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
+			// Second query: data
+			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, dataRsps...),
+			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
+		)
+
+		// Test the mongoPaginatedQuery function
+		target := bson.D{primitive.E{Key: "configurations.nodes.cpeMatch.criteriaProductPrefix", Value: "test"}}
+		qCfg := QueryConfig{Start: 0, Size: 10}
+		result, err := mongoPaginatedQuery[schema.Cve](context.Background(), cli.cve(), target, qCfg)
+		require.NoError(t, err)
+
+		// Verify the results
+		assert.Equal(t, len(cves), result.Total)
+		assert.Equal(t, 10, result.Size)
+		for i := 0; i < 10; i++ {
+			assert.Equal(t, fmt.Sprintf("CVE-2022-%04d", 999-i), result.Entries[i].CVEID)
+		}
+	})
+
 	mt.Run("GetCVEByCPE", func(mt *mtest.T) {
 		cli, err := NewMongo("", "", "", MongoTestClient(mt.Client))
 		require.NoError(t, err)
@@ -149,13 +208,23 @@ func TestMongoNvdCVE(t *testing.T) {
 
 		// found
 		cpeName := "cpe:2.3:a:dotproject:dotproject:*:*:*:*:*:*:*:*"
-		mockRsp, err := toBsonD(mongoPG[schema.Cve]{
-			Info:             []mongoPGInfo{{Count: 1}},
-			PaginatedResults: []schema.Cve{{CVEID: "CVE-2006-3240"}},
-		})
+
+		// The first query's mock response (count query)
+		countRsp, err := toBsonD(struct {
+			Count int64 `bson:"count"`
+		}{Count: 1})
 		require.NoError(t, err)
+
+		// The second query's mock response (data query)
+		dataRsp, err := toBsonD(schema.Cve{CVEID: "CVE-2006-3240"})
+		require.NoError(t, err)
+
 		mt.AddMockResponses(
-			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *mockRsp),
+			// First query: count
+			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *countRsp),
+			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
+			// Second query: data
+			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *dataRsp),
 			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
 		)
 		cves, err := cli.GetCVEByCPE(context.Background(), cpeName)
@@ -168,7 +237,7 @@ func TestMongoNvdCVE(t *testing.T) {
 		_, err = cli.GetCVEByCPE(context.Background(), cpeName)
 		assert.ErrorContains(t, err, "command failed")
 
-		// cve not found
+		// cve not found - count query returns empty result
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch),
 			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
@@ -176,13 +245,14 @@ func TestMongoNvdCVE(t *testing.T) {
 		_, err = cli.GetCVEByCPE(context.Background(), cpeName)
 		assert.ErrorIs(t, err, ErrNotFound)
 
-		mockRsp, err = toBsonD(mongoPG[schema.Cve]{
-			Info:             []mongoPGInfo{{Count: 0}},
-			PaginatedResults: []schema.Cve{},
-		})
+		// cve not found - count query returns 0
+		countRspZero, err := toBsonD(struct {
+			Count int64 `bson:"count"`
+		}{Count: 0})
 		require.NoError(t, err)
+
 		mt.AddMockResponses(
-			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *mockRsp),
+			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *countRspZero),
 			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
 		)
 		_, err = cli.GetCVEByCPE(context.Background(), cpeName)
@@ -227,13 +297,25 @@ func TestMongoNvdCVE(t *testing.T) {
 		cveKeyword := "microsoft"
 		result1 := "CVE-2022-0001"
 		result2 := "CVE-2022-0002"
-		mockRsp, err := toBsonD(mongoPG[schema.Cve]{
-			Info:             []mongoPGInfo{{Count: 2}},
-			PaginatedResults: []schema.Cve{{CVEID: result1}, {CVEID: result2}},
-		})
+
+		// The first query's mock response (count query)
+		countRsp, err := toBsonD(struct {
+			Count int64 `bson:"count"`
+		}{Count: 2})
 		require.NoError(t, err)
+
+		// The second query's mock response (data query)
+		dataRsp1, err := toBsonD(schema.Cve{CVEID: result1})
+		require.NoError(t, err)
+		dataRsp2, err := toBsonD(schema.Cve{CVEID: result2})
+		require.NoError(t, err)
+
 		mt.AddMockResponses(
-			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *mockRsp),
+			// First query: count
+			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *countRsp),
+			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
+			// Second query: data
+			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *dataRsp1, *dataRsp2),
 			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
 		)
 		cves, err := cli.GetCVEByKeyword(context.Background(), Keyword{Val: cveKeyword})
@@ -245,27 +327,28 @@ func TestMongoNvdCVE(t *testing.T) {
 		// command failed
 		mt.AddMockResponses(mtest.CreateCommandErrorResponse(mtest.CommandError{}))
 
-		_, err = cli.GetCPEByKeyword(context.Background(), Keyword{Val: cveKeyword})
+		_, err = cli.GetCVEByKeyword(context.Background(), Keyword{Val: cveKeyword})
 		assert.ErrorContains(t, err, "command failed")
 
-		// cve not found
+		// cve not found - count query returns empty result
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch),
 			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
 		)
-		_, err = cli.GetCPEByKeyword(context.Background(), Keyword{Val: cveKeyword})
+		_, err = cli.GetCVEByKeyword(context.Background(), Keyword{Val: cveKeyword})
 		assert.ErrorIs(t, err, ErrNotFound)
 
-		mockRsp, err = toBsonD(mongoPG[schema.Cve]{
-			Info:             []mongoPGInfo{{Count: 0}},
-			PaginatedResults: []schema.Cve{},
-		})
+		// cve not found - count query returns 0
+		countRspZero, err := toBsonD(struct {
+			Count int64 `bson:"count"`
+		}{Count: 0})
 		require.NoError(t, err)
+
 		mt.AddMockResponses(
-			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *mockRsp),
+			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *countRspZero),
 			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
 		)
-		_, err = cli.GetCPEByKeyword(context.Background(), Keyword{Val: cveKeyword})
+		_, err = cli.GetCVEByKeyword(context.Background(), Keyword{Val: cveKeyword})
 		assert.ErrorIs(t, err, ErrNotFound)
 	})
 }
@@ -398,17 +481,30 @@ func TestMongoNvdCPE(t *testing.T) {
 		cpeName := "cpe:2.3:a:dotproject:*:*"
 		result1 := "cpe:2.3:a:dotproject:dotproject:1.2:*:*:*:*:*:*:*"
 		result2 := "cpe:2.3:a:dotproject:dotproject:1.3:*:*:*:*:*:*:*"
-		mockRsp, err := toBsonD(mongoPG[schema.Cpe]{
-			Info:             []mongoPGInfo{{Count: 2}},
-			PaginatedResults: []schema.Cpe{{Name: result1}, {Name: result2}},
-		})
+
+		// The first query's mock response (count query)
+		countRsp, err := toBsonD(struct {
+			Count int64 `bson:"count"`
+		}{Count: 2})
 		require.NoError(t, err)
+
+		// The second query's mock response (data query)
+		dataRsp1, err := toBsonD(schema.Cpe{Name: result1})
+		require.NoError(t, err)
+		dataRsp2, err := toBsonD(schema.Cpe{Name: result2})
+		require.NoError(t, err)
+
 		mt.AddMockResponses(
-			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch, *mockRsp),
+			// First query: count
+			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch, *countRsp),
+			mtest.CreateCursorResponse(0, cpeCltName, mtest.NextBatch),
+			// Second query: data
+			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch, *dataRsp1, *dataRsp2),
 			mtest.CreateCursorResponse(0, cpeCltName, mtest.NextBatch),
 		)
 		cpes, err := cli.GetCPEByMatchString(context.Background(), cpeName)
 		require.NoError(t, err)
+
 		assert.Equal(t, result2, cpes.Entries[0].Name)
 		assert.Equal(t, result1, cpes.Entries[1].Name)
 		mt.ClearMockResponses()
@@ -419,7 +515,7 @@ func TestMongoNvdCPE(t *testing.T) {
 		_, err = cli.GetCPEByMatchString(context.Background(), cpeName)
 		assert.ErrorContains(t, err, "command failed")
 
-		// cpe not found
+		// cpe not found - count query returns empty result
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch),
 			mtest.CreateCursorResponse(0, cpeCltName, mtest.NextBatch),
@@ -427,14 +523,15 @@ func TestMongoNvdCPE(t *testing.T) {
 		_, err = cli.GetCPEByMatchString(context.Background(), cpeName)
 		assert.ErrorIs(t, err, ErrNotFound)
 
-		mockRsp, err = toBsonD(mongoPG[schema.Cpe]{
-			Info:             []mongoPGInfo{{Count: 0}},
-			PaginatedResults: []schema.Cpe{},
-		})
+		// cpe not found - count query returns 0
+		countRspZero, err := toBsonD(struct {
+			Count int64 `bson:"count"`
+		}{Count: 0})
 		require.NoError(t, err)
+
 		mt.AddMockResponses(
-			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *mockRsp),
-			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
+			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch, *countRspZero),
+			mtest.CreateCursorResponse(0, cpeCltName, mtest.NextBatch),
 		)
 		_, err = cli.GetCPEByMatchString(context.Background(), cpeName)
 		assert.ErrorIs(t, err, ErrNotFound)
@@ -448,17 +545,30 @@ func TestMongoNvdCPE(t *testing.T) {
 		cpeKeyword := "microsoft 365"
 		result1 := "cpe:2.3:a:f-secure:elements_for_microsoft_365:-:*:*:*:*:*:*:*"
 		result2 := "cpe:2.3:a:microsoft:365_apps:-:*:*:*:*:*:*:*"
-		mockRsp, err := toBsonD(mongoPG[schema.Cpe]{
-			Info:             []mongoPGInfo{{Count: 2}},
-			PaginatedResults: []schema.Cpe{{Name: result1}, {Name: result2}},
-		})
+
+		// The first query's mock response (count query)
+		countRsp, err := toBsonD(struct {
+			Count int64 `bson:"count"`
+		}{Count: 2})
 		require.NoError(t, err)
+
+		// The second query's mock response (data query)
+		dataRsp1, err := toBsonD(schema.Cpe{Name: result1})
+		require.NoError(t, err)
+		dataRsp2, err := toBsonD(schema.Cpe{Name: result2})
+		require.NoError(t, err)
+
 		mt.AddMockResponses(
-			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch, *mockRsp),
+			// First query: count
+			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch, *countRsp),
+			mtest.CreateCursorResponse(0, cpeCltName, mtest.NextBatch),
+			// Second query: data
+			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch, *dataRsp1, *dataRsp2),
 			mtest.CreateCursorResponse(0, cpeCltName, mtest.NextBatch),
 		)
 		cpes, err := cli.GetCPEByKeyword(context.Background(), Keyword{Val: cpeKeyword})
 		require.NoError(t, err)
+
 		assert.Equal(t, result2, cpes.Entries[0].Name)
 		assert.Equal(t, result1, cpes.Entries[1].Name)
 		mt.ClearMockResponses()
@@ -469,7 +579,7 @@ func TestMongoNvdCPE(t *testing.T) {
 		_, err = cli.GetCPEByKeyword(context.Background(), Keyword{Val: cpeKeyword})
 		assert.ErrorContains(t, err, "command failed")
 
-		// cpe not found
+		// cpe not found - count query returns empty result
 		mt.AddMockResponses(
 			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch),
 			mtest.CreateCursorResponse(0, cpeCltName, mtest.NextBatch),
@@ -477,14 +587,15 @@ func TestMongoNvdCPE(t *testing.T) {
 		_, err = cli.GetCPEByKeyword(context.Background(), Keyword{Val: cpeKeyword})
 		assert.ErrorIs(t, err, ErrNotFound)
 
-		mockRsp, err = toBsonD(mongoPG[schema.Cpe]{
-			Info:             []mongoPGInfo{{Count: 0}},
-			PaginatedResults: []schema.Cpe{},
-		})
+		// cpe not found - count query returns 0
+		countRspZero, err := toBsonD(struct {
+			Count int64 `bson:"count"`
+		}{Count: 0})
 		require.NoError(t, err)
+
 		mt.AddMockResponses(
-			mtest.CreateCursorResponse(1, cveCltName, mtest.FirstBatch, *mockRsp),
-			mtest.CreateCursorResponse(0, cveCltName, mtest.NextBatch),
+			mtest.CreateCursorResponse(1, cpeCltName, mtest.FirstBatch, *countRspZero),
+			mtest.CreateCursorResponse(0, cpeCltName, mtest.NextBatch),
 		)
 		_, err = cli.GetCPEByKeyword(context.Background(), Keyword{Val: cpeKeyword})
 		assert.ErrorIs(t, err, ErrNotFound)
