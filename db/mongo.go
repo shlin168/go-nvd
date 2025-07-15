@@ -218,39 +218,59 @@ type mongoPG[T NVDUnit] struct {
 
 func mongoPaginatedQuery[T NVDUnit](ctx context.Context, clt *mongo.Collection, target bson.D, qCfg QueryConfig) (*Result[T], error) {
 	matchStage := bson.D{primitive.E{Key: "$match", Value: target}}
-	grpPgResults := bson.A{bson.D{primitive.E{Key: "$skip", Value: qCfg.Start}}}
-	if qCfg.Size > GetSizeUnlimited {
-		grpPgResults = append(grpPgResults, bson.D{primitive.E{Key: "$limit", Value: qCfg.Size}})
-	}
-	grpTotalCount := bson.A{bson.D{primitive.E{Key: "$count", Value: "count"}}}
-	groupStage := bson.D{primitive.E{Key: "$facet", Value: bson.D{
-		primitive.E{Key: "paginatedResults", Value: grpPgResults},
-		primitive.E{Key: "info", Value: grpTotalCount},
-	}}}
 
-	cursor, err := clt.Aggregate(ctx, mongo.Pipeline{matchStage, groupStage})
+	// The first query retrieves the total count.
+	countPipeline := mongo.Pipeline{
+		matchStage,
+		bson.D{primitive.E{Key: "$count", Value: "count"}},
+	}
+
+	countCursor, err := clt.Aggregate(ctx, countPipeline)
 	if err != nil {
 		return nil, err
 	}
 
-	var results []mongoPG[T]
-	if err := cursor.All(ctx, &results); err != nil {
+	var countResults []struct {
+		Count int64 `bson:"count"`
+	}
+	if err := countCursor.All(ctx, &countResults); err != nil {
 		return nil, err
 	}
+
 	r := &Result[T]{Start: qCfg.Start}
-	if len(results) == 0 || len(results[0].Info) == 0 {
+
+	if len(countResults) == 0 {
 		return r, ErrNotFound
 	}
 
-	totalCnt := int(results[0].Info[0].Count)
+	totalCnt := int(countResults[0].Count)
 	if totalCnt == 0 {
 		return r, ErrNotFound
 	}
 
-	pgResult := results[0].PaginatedResults
+	// The second query fetches the paginated results.
+	dataPipeline := mongo.Pipeline{matchStage}
+	dataPipeline = append(dataPipeline, bson.D{primitive.E{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}})
+	dataPipeline = append(dataPipeline, bson.D{primitive.E{Key: "$skip", Value: qCfg.Start}})
+
+	if qCfg.Size > GetSizeUnlimited {
+		dataPipeline = append(dataPipeline, bson.D{primitive.E{Key: "$limit", Value: qCfg.Size}})
+	}
+
+	dataCursor, err := clt.Aggregate(ctx, dataPipeline)
+	if err != nil {
+		return nil, err
+	}
+
+	var pgResult []T
+	if err := dataCursor.All(ctx, &pgResult); err != nil {
+		return nil, err
+	}
+
 	r.Total = totalCnt
 	r.Size = len(pgResult)
 	r.Entries = pgResult
+
 	if r.IsPageEnd() {
 		return r, ErrPageEnd
 	}
