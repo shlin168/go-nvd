@@ -1,56 +1,67 @@
 # Database
 
-Available databases:
-* [mongo](#mongo)
+**Available databases:**
+- [MongoDB](#mongo)
 
-## Mongo
+## MongoDB
 
-> Only Mongo is supported, DocDB [does not support text index](https://docs.aws.amazon.com/documentdb/latest/developerguide/mongo-apis.html#mongo-apis-index) which is used in NVD's API to perform keyword search.
+> **Note:** Only MongoDB is supported. Amazon DocumentDB [does not support text indexes](https://docs.aws.amazon.com/documentdb/latest/developerguide/mongo-apis.html#mongo-apis-index), which are required for NVD's API keyword search functionality.
 
 ### Database & Collections
-* `nvd`
-  * `cve`: stores CVE records download from [CVE API](https://nvd.nist.gov/developers/vulnerabilities) and [CVE Data Feeds](https://nvd.nist.gov/vuln/data-feeds)
-    * Unique key: CVE ID. E.g., `CVE-2022-0001`
-  * `cpe`: stores CPE reocrds download from [CPE API](https://nvd.nist.gov/developers/products) and [CPE Data Feeds](https://nvd.nist.gov/products/cpe)
-    * Unique key: CPE Name. E.g., `cpe:2.3:a:microsoft:office:2021:*:*:*:ltsc:*:x64:*`
+
+**Database:** `nvd`
+
+- **`cve` collection**: Stores CVE records downloaded from the [CVE API](https://nvd.nist.gov/developers/vulnerabilities) and [CVE Data Feeds](https://nvd.nist.gov/vuln/data-feeds)
+  - **Unique key:** CVE ID (e.g., `CVE-2022-0001`)
+
+- **`cpe` collection**: Stores CPE records downloaded from the [CPE API](https://nvd.nist.gov/developers/products) and [CPE Data Feeds](https://nvd.nist.gov/products/cpe)
+  - **Unique key:** CPE Name (e.g., `cpe:2.3:a:microsoft:office:2021:*:*:*:ltsc:*:x64:*`)
 
 ### Initialization
-Either create with [mongo-init.js](../service/test/mongo/mongo-init.js) directly or create through `inidb` command with `-db-type=mongo`
+
+You can initialize the database using either of these methods:
+
+1. **Direct initialization** with [mongo-init.js](../service/test/mongo/mongo-init.js)
+2. **Command-line initialization** using the `initdb` command with `-db-type=mongo`
 
 ```bash
-# build executable
-$ go build -o bin/ ./db/...
+# Build executable
+go build -o bin/ ./db/...
 
-# run command
-$ ./bin/initdb -db-type mongo -db-endpoint <endpoint> -db-user <user> -db-pwd <pwd>
+# Run initialization command
+./bin/initdb -db-type mongo -db-endpoint <endpoint> -db-user <user> -db-pwd <pwd>
 ```
 
-### Index
-#### Index for matching CVE from CPE
-* `nvd`
-  * `cve`: index on `criteriaProductPrefix`, which is the prefix of CPE name which drop after product part.
-    * E.g., `criteriaProductPrefix("cpe:2.3:a:microsoft:office:2021:*:*:*:ltsc:*:x64:*") = "cpe:2.3:a:microsoft:office"`
+### Indexes
 
-`criteriaProductPrefix` is generated from sources and write to `nvd.cve` when using `nvdetl` command. It is used to improve the performance when searching CVEs that contains CPE in their configuration since exactly match search is faster than prefix search.
+#### Index for Matching CVEs from CPEs
 
-```js
+**Database:** `nvd`
+- **`cve` collection**: Index on `criteriaProductPrefix`, which is the prefix of the CPE name that drops everything after the product part.
+  - **Example:** `criteriaProductPrefix("cpe:2.3:a:microsoft:office:2021:*:*:*:ltsc:*:x64:*") = "cpe:2.3:a:microsoft:office"`
+
+The `criteriaProductPrefix` is generated from sources and written to `nvd.cve` when using the `nvdetl` command. It improves performance when searching for CVEs that contain CPEs in their configuration, since exact match searches are faster than prefix searches.
+
+```javascript
 db.cve.createIndex({ "configurations.nodes.cpeMatch.criteriaProductPrefix": 1 }, { name: "cpeNameProductPrefix" });
 ```
 
-#### Text indexs for NVD keyword search
-* `nvd`
-  * `cve`: `descriptions.value`
-  * `cpe`: `titles.title` and `refs.ref`
+#### Text Indexes for NVD Keyword Search
 
-```js
+**Database:** `nvd`
+- **`cve` collection**: Text index on `descriptions.value`
+- **`cpe` collection**: Text index on `titles.title` and `refs.ref`
+
+```javascript
 db.cve.createIndex({ "descriptions.value": "text" }, { name: "keyword" });
 db.cpe.createIndex({ "titles.title": "text", "refs.ref": "text" }, { name: "keyword" });
 ```
 
-### Additional preprocessing
-To support query with `cpe match string` to get full CPEs. `nvdetl` command parsed cpe name to store each part seperately in `cpeNameParsed` to avoid using `regex` to match for performance.
+### Additional Preprocessing
 
-* E.g., `cpe = "cpe:2.3:a:microsoft:office:2021:*:*:*:ltsc:*:x64:*"`, then the parsing result is as below
+To support queries with `cpe match string` to get full CPEs, the `nvdetl` command parses CPE names to store each part separately in `cpeNameParsed`. This avoids using regex for matching, which improves performance.
+
+**Example:** For `cpe = "cpe:2.3:a:microsoft:office:2021:*:*:*:ltsc:*:x64:*"`, the parsing result is:
 ```json
 {
     "cpeNameParsed": {

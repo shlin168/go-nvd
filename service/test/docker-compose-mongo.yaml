@@ -16,7 +16,7 @@ services:
       NVD_DB_PWD: admin
       NVD_DB_ENDPOINT: mongo:27017
     healthcheck:
-      test: curl --fail http://localhost:8080/nvd/readiness
+      test: curl --fail http://localhost:8080/nvd/v1/readiness
       interval: 20s
       timeout: 10s
       retries: 5
