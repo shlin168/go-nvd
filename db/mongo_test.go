@@ -32,7 +32,6 @@ func toBsonD(v interface{}) (doc *bson.D, err error) {
 
 func TestMongo(t *testing.T) {
 	mt := mtest.New(t, mtest.NewOptions().ClientType(mtest.Mock))
-	defer mt.Close()
 
 	mt.Run("Init", func(mt *mtest.T) {
 		cli, err := NewMongo("", "", "", MongoTestClient(mt.Client))
@@ -58,7 +57,6 @@ func TestMongo(t *testing.T) {
 
 func TestMongoNvdCVE(t *testing.T) {
 	mt := mtest.New(t, mtest.NewOptions().ClientType(mtest.Mock))
-	defer mt.Close()
 
 	mt.Run("UpsertCVE", func(mt *mtest.T) {
 		cli, err := NewMongo("", "", "", MongoTestClient(mt.Client))
@@ -355,7 +353,6 @@ func TestMongoNvdCVE(t *testing.T) {
 
 func TestMongoNvdCPE(t *testing.T) {
 	mt := mtest.New(t, mtest.NewOptions().ClientType(mtest.Mock))
-	defer mt.Close()
 
 	mt.Run("UpsertCPE", func(mt *mtest.T) {
 		cli, err := NewMongo("", "", "", MongoTestClient(mt.Client))
